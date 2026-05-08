@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MT翻訳品質分析 — Long (2022) 準拠</title>
+
+<!-- SheetJS for Excel parsing -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Chart.js for charts -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --deepl:   #2563EB;
+    --gemini:  #D97706;
+    --openai:  #059669;
+    --deepl-light:  #DBEAFE;
+    --gemini-light: #FEF3C7;
+    --openai-light: #D1FAE5;
+    --coherence: #EF4444;
+    --lexicon:   #F97316;
+    --grammar:   #3B82F6;
+    --style:     #8B5CF6;
+    --spelling:  #10B981;
+    --bg: #F8FAFC;
+    --card: #FFFFFF;
+    --border: #E2E8F0;
+    --text: #1E293B;
+    --muted: #64748B;
+    --heading: #0F172A;
+  }
+
+  body {
+    font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  /* ── Header ── */
+  header {
+    background: linear-gradient(135deg, #1E3A5F 0%, #2563EB 100%);
+    color: #fff;
+    padding: 32px 40px 24px;
+    position: relative;
+  }
+  header h1 { font-size: 22px; font-weight: 700; letter-spacing: 0.02em; margin-bottom: 4px; }
+  header .subtitle { font-size: 12px; opacity: 0.8; }
+  header .ref { font-size: 11px; opacity: 0.65; margin-top: 6px; font-style: italic; }
+
+  /* ── Main layout ── */
+  main { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+
+  /* ── Upload zone ── */
+  #drop-zone {
+    border: 2.5px dashed #93C5FD;
+    border-radius: 12px;
+    background: #EFF6FF;
+    padding: 52px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    margin-bottom: 32px;
+  }
+  #drop-zone.dragover { background: #DBEAFE; border-color: var(--deepl); }
+  #drop-zone .icon { font-size: 42px; margin-bottom: 12px; }
+  #drop-zone .label { font-size: 16px; font-weight: 600; color: var(--deepl); margin-bottom: 6px; }
+  #drop-zone .hint { font-size: 12px; color: var(--muted); }
+  #file-input { display: none; }
+
+  /* ── Section ── */
+  .section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .section-header {
+    background: #F1F5F9;
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .section-header h2 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--heading);
+  }
+  .section-header .eng {
+    font-size: 11px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .section-body { padding: 20px; }
+
+  /* ── Cards grid ── */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    border-radius: 8px;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .stat-card.deepl  { background: var(--deepl-light);  border: 1px solid #93C5FD; }
+  .stat-card.gemini { background: var(--gemini-light); border: 1px solid #FCD34D; }
+  .stat-card.openai { background: var(--openai-light); border: 1px solid #6EE7B7; }
+  .stat-card .model-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.7;
+  }
+  .stat-card.deepl  .model-label { color: var(--deepl);  }
+  .stat-card.gemini .model-label { color: var(--gemini); }
+  .stat-card.openai .model-label { color: var(--openai); }
+  .stat-card .value { font-size: 30px; font-weight: 700; line-height: 1; }
+  .stat-card.deepl  .value { color: var(--deepl);  }
+  .stat-card.gemini .value { color: var(--gemini); }
+  .stat-card.openai .value { color: var(--openai); }
+  .stat-card .sub { font-size: 11px; color: var(--muted); }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  thead tr { background: #F8FAFC; }
+  th {
+    padding: 9px 12px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+    font-size: 11.5px;
+    color: var(--heading);
+  }
+  td { padding: 8px 12px; border-bottom: 1px solid #F1F5F9; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #F8FAFC; }
+  .text-right { text-align: right; }
+  .text-center { text-align: center; }
+  .bold { font-weight: 700; }
+
+  /* Model badges */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .badge.deepl  { background: var(--deepl-light);  color: var(--deepl);  }
+  .badge.gemini { background: var(--gemini-light); color: var(--gemini); }
+  .badge.openai { background: var(--openai-light); color: var(--openai); }
+
+  /* Category pills */
+  .cat-pill {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .cat-coherence { background: var(--coherence); }
+  .cat-lexicon   { background: var(--lexicon);   }
+  .cat-grammar   { background: var(--grammar);   }
+  .cat-style     { background: var(--style);     }
+  .cat-spelling  { background: var(--spelling);  }
+
+  /* ── Chart containers ── */
+  .chart-wrapper { position: relative; width: 100%; }
+  .chart-tall { height: 360px; }
+  .chart-mid  { height: 280px; }
+  .chart-short { height: 200px; }
+
+  .charts-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  .charts-3col {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 800px) {
+    .charts-2col, .charts-3col { grid-template-columns: 1fr; }
+  }
+
+  .sub-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--heading);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sub-section-title::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 15px;
+    border-radius: 2px;
+  }
+  .sub-section-title.deepl::before  { background: var(--deepl);  }
+  .sub-section-title.gemini::before { background: var(--gemini); }
+  .sub-section-title.openai::before { background: var(--openai); }
+  .sub-section-title.neutral::before { background: var(--muted); }
+
+  /* ── Legend ── */
+  .legend-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  /* ── Note box ── */
+  .note-box {
+    background: #FFFBEB;
+    border: 1px solid #FCD34D;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 11.5px;
+    color: #78350F;
+    margin-top: 16px;
+  }
+
+  /* ── AD table chip ── */
+  .ad-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .ad-low  { background: #D1FAE5; color: #065F46; }
+  .ad-mid  { background: #FEF3C7; color: #92400E; }
+  .ad-high { background: #FEE2E2; color: #991B1B; }
+
+  /* ── PDF button ── */
+  #pdf-btn {
+    display: none;
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    background: var(--deepl);
+    color: #fff;
+    border: none;
+    border-radius: 50px;
+    padding: 14px 24px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(37,99,235,0.4);
+    transition: transform 0.15s, box-shadow 0.15s;
+    z-index: 999;
+    gap: 8px;
+    align-items: center;
+  }
+  #pdf-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 28px rgba(37,99,235,0.5); }
+  #pdf-btn.visible { display: flex; }
+
+  /* ── Results container ── */
+  #results { display: none; }
+  #results.visible { display: block; }
+
+  /* ── Print styles ── */
+  @media print {
+    body { background: #fff; font-size: 11px; }
+    header { background: #1E3A5F !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section { break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
+    #drop-zone, #pdf-btn { display: none !important; }
+    .chart-tall { height: 300px; }
+    .chart-mid  { height: 230px; }
+    .charts-2col { grid-template-columns: 1fr 1fr; }
+    .charts-3col { grid-template-columns: 1fr 1fr 1fr; }
+    canvas { max-width: 100%; }
+    main { padding: 16px; }
+  }
+
+  /* ── Footer note ── */
+  .analysis-note {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    line-height: 1.7;
+  }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+  .error-msg { color: #DC2626; font-weight: 600; padding: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MT翻訳品質分析ツール</h1>
+  <div class="subtitle">機械翻訳エラータクソノミー分析 / Machine Translation Error Taxonomy Analysis</div>
+  <div class="ref">参考文献: Long, H. (2022). "Learning to Live with Machine Translation." <em>New Literary History</em>, 53–54, 721–753. — SCATEタクソノミーに基づくフルエンシー評価手法を準用</div>
+</header>
+
+<main>
+  <!-- Upload Zone -->
+  <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <div class="icon">📊</div>
+    <div class="label">Excelファイルをここにドラッグ＆ドロップ</div>
+    <div class="hint">または クリックしてファイルを選択（.xlsx / .xls 対応）</div>
+    <input type="file" id="file-input" accept=".xlsx,.xls">
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+
+    <!-- Section 0: データ概要 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>📋 データ概要</h2>
+        <span class="eng">Overview Statistics</span>
+      </div>
+      <div class="section-body">
+        <div class="cards-grid" id="stat-cards"></div>
+        <div id="overview-note" class="analysis-note"></div>
+      </div>
+    </div>
+
+    <!-- Section 1: Table 1 相当 — テキスト × モデル別エラー合計 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>📊 Table 1 相当：テキスト × 翻訳モデル別エラー集計</h2>
+        <span class="eng">Error counts per text type and MT model (cf. Table 1 in Long 2022)</span>
+      </div>
+      <div class="section-body">
+        <div id="table1-container"></div>
+        <div class="note-box">
+          Long (2022) Table 1は「エラーが1つ以上含まれる文の割合（%）」を示すが、本データでは文単位データが存在しないため、評価者ごとのエラー総数（平均値±標準偏差）で代替している。各セルは「平均 (SD)」の形式。
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 2: Figure 1 & 2 相当 — エラータイプ別分布 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>📊 Figure 1–3 相当：翻訳モデル別 エラータイプ分布</h2>
+        <span class="eng">Number of translation errors by type per model (cf. Fig. 1 & 2 in Long 2022)</span>
+      </div>
+      <div class="section-body">
+        <div class="legend-row" id="cat-legend"></div>
+        <div class="charts-3col">
+          <div>
+            <div class="sub-section-title deepl">DeepL — エラータイプ別分布</div>
+            <div class="chart-wrapper chart-tall"><canvas id="chart-deepl"></canvas></div>
+          </div>
+          <div>
+            <div class="sub-section-title gemini">Gemini — エラータイプ別分布</div>
+            <div class="chart-wrapper chart-tall"><canvas id="chart-gemini"></canvas></div>
+          </div>
+          <div>
+            <div class="sub-section-title openai">OpenAI — エラータイプ別分布</div>
+            <div class="chart-wrapper chart-tall"><canvas id="chart-openai"></canvas></div>
+          </div>
+        </div>
+        <div class="analysis-note">
+          各棒は全テキスト・全評価者の合計値。エラータイプは19カテゴリー（SCATEタクソノミー準拠）。色はメインカテゴリーを示す（赤=Coherence、橙=Lexicon、青=Grammar &amp; Syntax、紫=Style &amp; register、緑=Spelling）。
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 3: メインカテゴリー別割合 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>🍩 メインカテゴリー別エラー構成比</h2>
+        <span class="eng">Error proportion by main category</span>
+      </div>
+      <div class="section-body">
+        <div class="charts-3col">
+          <div>
+            <div class="sub-section-title deepl">DeepL</div>
+            <div class="chart-wrapper chart-mid"><canvas id="pie-deepl"></canvas></div>
+          </div>
+          <div>
+            <div class="sub-section-title gemini">Gemini</div>
+            <div class="chart-wrapper chart-mid"><canvas id="pie-gemini"></canvas></div>
+          </div>
+          <div>
+            <div class="sub-section-title openai">OpenAI</div>
+            <div class="chart-wrapper chart-mid"><canvas id="pie-openai"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 4: テキストタイプ別比較 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>📊 テキストタイプ別 × モデル別 エラー総数比較</h2>
+        <span class="eng">Total error counts by text type and model</span>
+      </div>
+      <div class="section-body">
+        <div class="chart-wrapper chart-mid"><canvas id="chart-textcomp"></canvas></div>
+        <div class="analysis-note">
+          各テキストにおける各翻訳モデルの全評価者合計エラー数。テキストタイプ（批評・文学・哲学・論文）とモデルの交互作用を視覚化。
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 5: Table 2 相当 — 評価者間一致度 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>📋 Table 2 相当：評価者間一致度（AD指数）</h2>
+        <span class="eng">Interrater agreement — Average Deviation (AD) index (cf. Table 2 in Long 2022)</span>
+      </div>
+      <div class="section-body">
+        <div id="table2-container"></div>
+        <div class="note-box">
+          Long (2022) Table 2はMirai翻訳の精度評価（10点スケール）の評価者平均値とAD指数を示す。本分析では、SCATEタクソノミーのフルエンシー評価（エラー数）に基づき、テキスト × モデルごとに評価者のエラー総数を集計し、AD指数（= Σ|x<sub>i</sub> − x̄| / n）で評価者間の一致度を算出した。AD指数が小さいほど評価者間の一致度が高いことを示す。
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 6: 主要エラータイプ分析 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>🔍 主要エラータイプ詳細（上位5カテゴリー）</h2>
+        <span class="eng">Top 5 most frequent error types across all models</span>
+      </div>
+      <div class="section-body">
+        <div id="top5-container"></div>
+        <div class="analysis-note">
+          Long (2022) では、最も多いエラータイプとして「co-reference（照応）」「logical problem（論理的問題）」「lexical choice（語彙選択）」「disfluent construction（不自然な構文）」を挙げている。本データにおける上位エラータイプとの比較が可能。
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /#results -->
+</main>
+
+<!-- PDF Export Button -->
+<button id="pdf-btn" onclick="exportPDF()">
+  🖨️ 結果をPDFに出力
+</button>
+
+<script>
+// ══════════════════════════════════════════════
+//  CONSTANTS
+// ══════════════════════════════════════════════
+const MODEL_NAMES_NORMALIZED = ['deepl', 'gemini', 'openai'];
+const MODEL_LABELS = { deepl: 'DeepL', gemini: 'Gemini', openai: 'OpenAI' };
+const MODEL_COLORS = {
+  deepl:  { main: '#2563EB', light: '#DBEAFE', border: '#93C5FD' },
+  gemini: { main: '#D97706', light: '#FEF3C7', border: '#FCD34D' },
+  openai: { main: '#059669', light: '#D1FAE5', border: '#6EE7B7' },
+};
+const CAT_COLORS = {
+  'Coherence（一貫性）':         '#EF4444',
+  'Lexicon（語彙）':             '#F97316',
+  'Grammar & Syntax（文法と統語論）': '#3B82F6',
+  'Style & register（様式と位相）': '#8B5CF6',
+  'Spelling（綴り）':            '#10B981',
+};
+const CAT_CLASSES = {
+  'Coherence（一貫性）':         'cat-coherence',
+  'Lexicon（語彙）':             'cat-lexicon',
+  'Grammar & Syntax（文法と統語論）': 'cat-grammar',
+  'Style & register（様式と位相）': 'cat-style',
+  'Spelling（綴り）':            'cat-spelling',
+};
+const CAT_SHORT = {
+  'Coherence（一貫性）':         'Coherence',
+  'Lexicon（語彙）':             'Lexicon',
+  'Grammar & Syntax（文法と統語論）': 'Grammar',
+  'Style & register（様式と位相）': 'Style',
+  'Spelling（綴り）':            'Spelling',
+};
+
+let chartInstances = {};
+
+// ══════════════════════════════════════════════
+//  DRAG & DROP / FILE INPUT
+// ══════════════════════════════════════════════
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) processFile(e.target.files[0]);
+});
+
+function processFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'binary' });
+      const parsed = parseExcel(wb);
+      renderAll(parsed);
+      document.getElementById('drop-zone').style.display = 'none';
+      document.getElementById('results').classList.add('visible');
+      document.getElementById('pdf-btn').classList.add('visible');
+    } catch(err) {
+      alert('ファイルの解析に失敗しました: ' + err.message);
+      console.error(err);
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+// ══════════════════════════════════════════════
+//  EXCEL PARSING
+// ══════════════════════════════════════════════
+function parseExcel(wb) {
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+  const row0 = raw[0]; // Text group names
+  const row1 = raw[1]; // Model names (deepl/gemini/openai)
+  const row2 = raw[2]; // Evaluator names
+
+  // ── Parse column metadata ──
+  const DATA_START = 3;
+  let currentText  = null;
+  let currentModel = null;
+
+  const cols = []; // { col, textRaw, model, evaluator }
+  for (let c = DATA_START; c < row2.length; c++) {
+    if (row0[c] != null) currentText  = String(row0[c]).trim();
+    if (row1[c] != null) currentModel = String(row1[c]).trim().toLowerCase();
+    const ev = row2[c] ? String(row2[c]).trim() : null;
+    if (ev) cols.push({ col: c, textRaw: currentText, model: currentModel, evaluator: ev });
+  }
+
+  // ── Parse categories ──
+  const categories = []; // { main, sub, desc, rowIdx }
+  let currentMain = null;
+  for (let r = 3; r < raw.length; r++) {
+    const row = raw[r];
+    if (!row || !row[1]) continue;
+    if (row[0]) currentMain = String(row[0]).trim();
+    categories.push({ main: currentMain, sub: String(row[1]).trim(), desc: row[2] ? String(row[2]).trim() : '', rowIdx: r });
+  }
+
+  // ── Build flat entry list ──
+  // entry: { text, model, evaluator, catIdx, count }
+  const entries = [];
+  for (const col of cols) {
+    for (let ci = 0; ci < categories.length; ci++) {
+      const v = raw[categories[ci].rowIdx][col.col];
+      entries.push({
+        text:      col.textRaw,
+        model:     col.model,
+        evaluator: col.evaluator,
+        catIdx:    ci,
+        count:     (v == null || v === '' || v === 0) ? 0 : Number(v),
+      });
+    }
+  }
+
+  // Unique texts / models / evaluators
+  const texts      = [...new Set(cols.map(c => c.textRaw))];
+  const models     = [...new Set(cols.map(c => c.model))];
+  const evaluators = [...new Set(cols.map(c => c.evaluator))];
+
+  return { entries, texts, models, evaluators, categories, cols };
+}
+
+// ══════════════════════════════════════════════
+//  UTILITY: aggregate
+// ══════════════════════════════════════════════
+function filterEntries(entries, { text, model, evaluator, catIdx } = {}) {
+  return entries.filter(e =>
+    (text      == null || e.text      === text) &&
+    (model     == null || e.model     === model) &&
+    (evaluator == null || e.evaluator === evaluator) &&
+    (catIdx    == null || e.catIdx    === catIdx)
+  );
+}
+
+function sumCounts(entries) {
+  return entries.reduce((s, e) => s + e.count, 0);
+}
+
+// Average per evaluator (for a given text+model+catIdx combo)
+function perEvaluatorTotals(entries, text, model, evaluators_list) {
+  // For each evaluator, sum all catIdx counts
+  return evaluators_list.map(ev => {
+    const sub = entries.filter(e => e.text === text && e.model === model && e.evaluator === ev);
+    return { evaluator: ev, total: sumCounts(sub) };
+  });
+}
+
+function mean(arr) {
+  if (!arr.length) return 0;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+function sd(arr) {
+  if (arr.length < 2) return 0;
+  const m = mean(arr);
+  return Math.sqrt(arr.reduce((s, v) => s + Math.pow(v - m, 2), 0) / arr.length);
+}
+function adIndex(arr) {
+  if (arr.length < 2) return 0;
+  const m = mean(arr);
+  return mean(arr.map(v => Math.abs(v - m)));
+}
+
+// ══════════════════════════════════════════════
+//  RENDER ALL
+// ══════════════════════════════════════════════
+function renderAll(parsed) {
+  destroyCharts();
+  renderOverview(parsed);
+  renderTable1(parsed);
+  renderErrorTypeCharts(parsed);
+  renderPieCharts(parsed);
+  renderTextComparison(parsed);
+  renderTable2(parsed);
+  renderTop5(parsed);
+}
+
+function destroyCharts() {
+  Object.values(chartInstances).forEach(c => c.destroy());
+  chartInstances = {};
+}
+
+// ── Section 0: Overview ──
+function renderOverview({ entries, texts, models, categories }) {
+  const container = document.getElementById('stat-cards');
+  container.innerHTML = '';
+
+  const modelOrder = ['deepl','gemini','openai'];
+  let totalAll = 0;
+
+  for (const m of modelOrder) {
+    if (!models.includes(m)) continue;
+    const sub = entries.filter(e => e.model === m);
+    const total = sumCounts(sub);
+    totalAll += total;
+    const cls = m;
+    container.innerHTML += `
+      <div class="stat-card ${cls}">
+        <div class="model-label">${MODEL_LABELS[m] || m}</div>
+        <div class="value">${total}</div>
+        <div class="sub">エラー総数 (全テキスト合計)</div>
+      </div>`;
+  }
+
+  // Per-category summary
+  const catTotals = categories.map((cat, ci) => ({
+    ...cat,
+    total: sumCounts(entries.filter(e => e.catIdx === ci))
+  })).sort((a,b) => b.total - a.total);
+
+  const topCat = catTotals[0];
+
+  document.getElementById('overview-note').innerHTML =
+    `分析対象: ${texts.length}テキスト × ${models.length}翻訳モデル × ${[...new Set(entries.map(e=>e.evaluator))].length}評価者 / ` +
+    `アノテーションカテゴリー: ${categories.length}種 / ` +
+    `全エラー総数: ${totalAll} / ` +
+    `最頻出エラータイプ: <strong>${topCat.sub}</strong>（計${topCat.total}件）`;
+}
+
+// ── Section 1: Table 1 ──
+function renderTable1({ entries, texts, models, cols }) {
+  const modelOrder = ['deepl','gemini','openai'];
+  const textEvals = {};
+  for (const c of cols) {
+    if (!textEvals[c.textRaw]) textEvals[c.textRaw] = {};
+    if (!textEvals[c.textRaw][c.model]) textEvals[c.textRaw][c.model] = new Set();
+    textEvals[c.textRaw][c.model].add(c.evaluator);
+  }
+
+  let html = '<table><thead><tr><th>テキスト</th>';
+  for (const m of modelOrder) {
+    if (!models.includes(m)) continue;
+    html += `<th class="text-center"><span class="badge ${m}">${MODEL_LABELS[m]}</span><br><small style="font-weight:400;color:var(--muted)">avg (SD)</small></th>`;
+  }
+  html += '<th class="text-right">合計</th></tr></thead><tbody>';
+
+  for (const text of texts) {
+    const shortText = text.replace(/（.+?）/, '').trim();
+    html += `<tr><td style="max-width:180px;font-size:11.5px">${text}</td>`;
+    let rowTotal = 0;
+    for (const m of modelOrder) {
+      if (!models.includes(m)) continue;
+      const evSet = textEvals[text] && textEvals[text][m] ? [...textEvals[text][m]] : [];
+      const perEv = evSet.map(ev => sumCounts(entries.filter(e => e.text===text && e.model===m && e.evaluator===ev)));
+      const avg = mean(perEv);
+      const s   = sd(perEv);
+      rowTotal += sumCounts(entries.filter(e => e.text===text && e.model===m));
+      html += `<td class="text-center">${avg.toFixed(1)} <span style="color:var(--muted)">(${s.toFixed(1)})</span></td>`;
+    }
+    html += `<td class="text-right bold">${rowTotal}</td></tr>`;
+  }
+
+  // Total row
+  html += '<tr style="font-weight:700;background:#F8FAFC"><td>合計</td>';
+  let grandTotal = 0;
+  for (const m of modelOrder) {
+    if (!models.includes(m)) continue;
+    const t = sumCounts(entries.filter(e => e.model === m));
+    grandTotal += t;
+    html += `<td class="text-center">${t}</td>`;
+  }
+  html += `<td class="text-right">${grandTotal}</td></tr>`;
+  html += '</tbody></table>';
+  document.getElementById('table1-container').innerHTML = html;
+}
+
+// ── Section 2: Error type charts (Fig 1 & 2 equivalent) ──
+function renderErrorTypeCharts({ entries, models, categories }) {
+  const modelOrder = ['deepl','gemini','openai'];
+
+  // Category legend
+  const legendEl = document.getElementById('cat-legend');
+  legendEl.innerHTML = Object.entries(CAT_SHORT).map(([k,v]) =>
+    `<div class="legend-item"><div class="legend-dot" style="background:${CAT_COLORS[k]}"></div>${v}</div>`
+  ).join('');
+
+  for (const m of modelOrder) {
+    if (!models.includes(m)) continue;
+    const canvasId = `chart-${m}`;
+    const ctx = document.getElementById(canvasId).getContext('2d');
+
+    const labels = categories.map(c => c.sub.replace(/^\d+\.\s*/, ''));
+    const data   = categories.map((cat, ci) =>
+      sumCounts(entries.filter(e => e.model === m && e.catIdx === ci))
+    );
+    const colors = categories.map(cat => CAT_COLORS[cat.main] || '#94A3B8');
+
+    chartInstances[canvasId] = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: `${MODEL_LABELS[m] || m} エラー数`,
+          data,
+          backgroundColor: colors.map(c => c + 'CC'),
+          borderColor: colors,
+          borderWidth: 1.5,
+          borderRadius: 3,
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              beforeTitle: (items) => {
+                const ci = items[0].dataIndex;
+                return categories[ci].main;
+              },
+              title: (items) => categories[items[0].dataIndex].sub,
+              label: (item) => ` エラー数: ${item.raw}件`,
+              afterLabel: (item) => {
+                const ci = item.dataIndex;
+                return categories[ci].desc ? ` ${categories[ci].desc}` : '';
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            grid: { color: '#F1F5F9' },
+            ticks: { font: { size: 10 } },
+            title: { display: true, text: 'エラー数 (件)', font: { size: 10 } }
+          },
+          y: {
+            ticks: {
+              font: { size: 9 },
+              callback: (val, idx) => {
+                const s = labels[idx];
+                return s.length > 22 ? s.substring(0, 22) + '…' : s;
+              }
+            },
+            grid: { display: false }
+          }
+        }
+      }
+    });
+  }
+}
+
+// ── Section 3: Pie charts ──
+function renderPieCharts({ entries, models, categories }) {
+  const mainCats = [...new Set(categories.map(c => c.main))];
+  const modelOrder = ['deepl','gemini','openai'];
+
+  for (const m of modelOrder) {
+    if (!models.includes(m)) continue;
+    const canvasId = `pie-${m}`;
+    const ctx = document.getElementById(canvasId).getContext('2d');
+
+    const labels = mainCats.map(mc => CAT_SHORT[mc] || mc);
+    const data   = mainCats.map(mc => {
+      const indices = categories.map((c,i) => c.main === mc ? i : -1).filter(i => i >= 0);
+      return sumCounts(entries.filter(e => e.model === m && indices.includes(e.catIdx)));
+    });
+    const colors = mainCats.map(mc => CAT_COLORS[mc] || '#94A3B8');
+
+    chartInstances[canvasId] = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data,
+          backgroundColor: colors.map(c => c + 'CC'),
+          borderColor: colors,
+          borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { font: { size: 10 }, padding: 8, boxWidth: 12 }
+          },
+          tooltip: {
+            callbacks: {
+              label: (item) => ` ${item.label}: ${item.raw}件 (${((item.raw / data.reduce((a,b)=>a+b,0))*100).toFixed(1)}%)`
+            }
+          }
+        }
+      }
+    });
+  }
+}
+
+// ── Section 4: Text comparison ──
+function renderTextComparison({ entries, texts, models }) {
+  const ctx = document.getElementById('chart-textcomp').getContext('2d');
+  const modelOrder = ['deepl','gemini','openai'];
+  const activeModels = modelOrder.filter(m => models.includes(m));
+
+  const datasets = activeModels.map(m => ({
+    label: MODEL_LABELS[m] || m,
+    data: texts.map(t => sumCounts(entries.filter(e => e.text === t && e.model === m))),
+    backgroundColor: MODEL_COLORS[m].main + 'BB',
+    borderColor: MODEL_COLORS[m].main,
+    borderWidth: 1.5,
+    borderRadius: 4,
+  }));
+
+  // Shorten text labels
+  const shortLabels = texts.map(t => {
+    const m = t.match(/^([A-D]（[^）]+）)/);
+    return m ? m[1] : t.substring(0, 18);
+  });
+
+  chartInstances['textcomp'] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: shortLabels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 11 }, boxWidth: 14 } },
+        tooltip: {
+          callbacks: { label: item => ` ${item.dataset.label}: ${item.raw}件` }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        y: {
+          beginAtZero: true,
+          grid: { color: '#F1F5F9' },
+          title: { display: true, text: 'エラー総数 (件)', font: { size: 10 } }
+        }
+      }
+    }
+  });
+}
+
+// ── Section 5: Table 2 (AD index) ──
+function renderTable2({ entries, texts, models, cols }) {
+  const modelOrder = ['deepl','gemini','openai'];
+
+  // Build text × model evaluator sets
+  const textModelEvals = {};
+  for (const c of cols) {
+    const key = `${c.textRaw}|||${c.model}`;
+    if (!textModelEvals[key]) textModelEvals[key] = new Set();
+    textModelEvals[key].add(c.evaluator);
+  }
+
+  let html = '<table><thead><tr>';
+  html += '<th>テキスト</th><th>モデル</th>';
+  html += '<th class="text-right">評価者1</th><th class="text-right">評価者2</th><th class="text-right">評価者3</th>';
+  html += '<th class="text-right">平均</th><th class="text-right">SD</th><th class="text-center">AD指数</th>';
+  html += '</tr></thead><tbody>';
+
+  for (const text of texts) {
+    let firstInGroup = true;
+    for (const m of modelOrder) {
+      if (!models.includes(m)) continue;
+      const key = `${text}|||${m}`;
+      const evList = textModelEvals[key] ? [...textModelEvals[key]] : [];
+      const perEv  = evList.map(ev => sumCounts(entries.filter(e => e.text===text && e.model===m && e.evaluator===ev)));
+      const avg = mean(perEv);
+      const s   = sd(perEv);
+      const ad  = adIndex(perEv);
+      const adClass = ad < 2 ? 'ad-low' : ad < 5 ? 'ad-mid' : 'ad-high';
+
+      const textCell = firstInGroup
+        ? `<td rowspan="${modelOrder.filter(x=>models.includes(x)).length}" style="vertical-align:middle;font-size:11.5px;border-right:2px solid var(--border)">${text}</td>`
+        : '';
+      firstInGroup = false;
+
+      const cells = [0,1,2].map(i =>
+        i < perEv.length ? `<td class="text-right">${perEv[i].toFixed(0)} <small style="color:var(--muted)">(${evList[i]})</small></td>` : '<td class="text-center" style="color:var(--muted)">—</td>'
+      ).join('');
+
+      html += `<tr>${textCell}
+        <td><span class="badge ${m}">${MODEL_LABELS[m]}</span></td>
+        ${cells}
+        <td class="text-right bold">${avg.toFixed(1)}</td>
+        <td class="text-right">${s.toFixed(2)}</td>
+        <td class="text-center"><span class="ad-chip ${adClass}">${ad.toFixed(2)}</span></td>
+      </tr>`;
+    }
+  }
+
+  html += '</tbody></table>';
+  html += '<div class="analysis-note" style="margin-top:14px">AD指数の目安: <span class="ad-chip ad-low">低 (&lt;2)</span> = 評価者間一致度 高、<span class="ad-chip ad-mid">中 (2–5)</span> = 中程度の一致、<span class="ad-chip ad-high">高 (&gt;5)</span> = 一致度 低。Long (2022) での平均評価者間一致率は約60–70%（文単位二値データ）。</div>';
+
+  document.getElementById('table2-container').innerHTML = html;
+}
+
+// ── Section 6: Top 5 error types ──
+function renderTop5({ entries, categories, models }) {
+  const modelOrder = ['deepl','gemini','openai'];
+
+  // Get overall top 5
+  const catTotals = categories.map((cat, ci) => ({
+    ...cat, ci,
+    total: sumCounts(entries.filter(e => e.catIdx === ci))
+  })).sort((a,b) => b.total - a.total).slice(0, 5);
+
+  let html = '<table><thead><tr>';
+  html += '<th>順位</th><th>カテゴリー</th><th>エラータイプ</th>';
+  for (const m of modelOrder) {
+    if (!models.includes(m)) continue;
+    html += `<th class="text-right"><span class="badge ${m}">${MODEL_LABELS[m]}</span></th>`;
+  }
+  html += '<th class="text-right">合計</th></tr></thead><tbody>';
+
+  catTotals.forEach((cat, rank) => {
+    const catClass = CAT_CLASSES[cat.main] || '';
+    html += `<tr>
+      <td class="text-center bold">${rank+1}</td>
+      <td><span class="cat-pill ${catClass}">${CAT_SHORT[cat.main] || cat.main}</span></td>
+      <td style="font-size:12px">${cat.sub}<br><small style="color:var(--muted)">${cat.desc}</small></td>`;
+    for (const m of modelOrder) {
+      if (!models.includes(m)) continue;
+      const n = sumCounts(entries.filter(e => e.model===m && e.catIdx===cat.ci));
+      html += `<td class="text-right">${n}</td>`;
+    }
+    html += `<td class="text-right bold">${cat.total}</td></tr>`;
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('top5-container').innerHTML = html;
+}
+
+// ══════════════════════════════════════════════
+//  PDF EXPORT
+// ══════════════════════════════════════════════
+function exportPDF() {
+  window.print();
+}
+
+// ── Make chart canvases render in print ──
+window.addEventListener('beforeprint', () => {
+  Object.values(chartInstances).forEach(chart => {
+    chart.resize();
+  });
+});
+</script>
+</body>
+</html>
